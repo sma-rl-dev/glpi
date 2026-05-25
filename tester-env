@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# GLPI - Tester Environment CLI
+# Usage: ./tester-env <command> [--ref <git-ref>] [--port <port>] [--run-id <id>]
+# Commands: deploy, seed, verify, reset, stop, logs, status
+
+RUN_ID="default"
+PORT="8080"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_PROJECT_NAME="tester-env-glpi"
+
+refresh_names() {
+  local suffix=""
+  if [[ "${PORT}" != "8080" ]]; then
+    echo "==> ERROR: --port is not supported for GLPI yet."
+    echo "==> docker-compose.yaml has hardcoded host port mappings. Use --port 8080."
+    exit 1
+  fi
+  if [[ "${RUN_ID}" != "default" ]]; then
+    echo "==> ERROR: --run-id is not supported for GLPI yet."
+    echo "==> docker-compose.yaml uses hardcoded container_name and port directives."
+    echo "==> supports_parallel_runs=false. Use the default single run."
+    exit 1
+  fi
+  COMPOSE_PROJECT_NAME="tester-env-glpi${suffix}"
+}
+
+cmd_deploy() {
+  local ref="${1:-}"
+
+  if [[ -n "${ref}" ]]; then
+    echo "==> Checking out ref: ${ref}"
+    git -C "${SCRIPT_DIR}" checkout "${ref}"
+    echo "==> Submodule now at: $(git -C "${SCRIPT_DIR}" rev-parse --short HEAD)"
+  fi
+
+  echo "==> Building and starting services..."
+  (
+    cd "${SCRIPT_DIR}"
+    docker compose -p "${COMPOSE_PROJECT_NAME}" up --build -d
+  )
+
+  echo "==> Waiting for database to be ready..."
+  local db_ready=""
+  for i in $(seq 1 30); do
+    if docker exec glpi-db mysqladmin ping -h localhost -u root -pglpi --silent 2>/dev/null; then
+      db_ready="true"
+      break
+    fi
+    echo "==>   DB not ready yet (attempt ${i}/30)..."
+    sleep 3
+  done
+  if [[ -z "${db_ready}" ]]; then
+    echo "==> ERROR: Database did not become ready after 30 attempts."
+    exit 1
+  fi
+  echo "==> Database is ready."
+
+  echo "==> Waiting for app to respond on port ${PORT}..."
+  local app_ready=""
+  for i in $(seq 1 30); do
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}" 2>/dev/null || echo "000")
+    case "${http_code}" in
+      200|301|302|303|401|403)
+        app_ready="true"
+        break
+        ;;
+    esac
+    echo "==>   App not ready yet (HTTP ${http_code}, attempt ${i}/30)..."
+    sleep 3
+  done
+  if [[ -z "${app_ready}" ]]; then
+    echo "==> ERROR: App did not respond after 30 attempts."
+    exit 1
+  fi
+  echo "==> App is responding (HTTP ${http_code:-unknown})."
+
+  echo "==> Installing dependencies (if needed)..."
+  if ! docker exec glpi-app test -d /var/www/glpi/vendor/composer 2>/dev/null; then
+    echo "==>   Running composer install..."
+    docker exec -u www-data glpi-app php bin/console dependencies install
+  else
+    echo "==>   Dependencies already present."
+  fi
+
+  echo "==> Installing database schema..."
+  docker exec -u www-data glpi-app php bin/console database:install \
+    --db-host=db --db-name=glpi --db-user=glpi --db-password=glpi \
+    --default-language=en_GB --force --reconfigure --no-telemetry -n
+  echo "==> Database installed."
+
+  echo "==> Resetting admin password to deterministic credentials..."
+  docker exec -u www-data glpi-app php bin/console user:reset_password glpi -p admin123 -n
+  echo "==> Password reset."
+
+  echo "==> Deployment complete."
+  echo "==> URL:  http://localhost:${PORT}"
+  echo "==> Credentials: glpi / admin123"
+}
+
+cmd_seed() {
+  echo "==> Seed: NOT IMPLEMENTED."
+  echo "==> The database:install command creates default users (glpi, tech, normal, post-only)."
+  echo "==> Full deterministic seed data (entities, tickets, assets) requires seed-engineer work."
+  echo "==> Returning non-zero to signal seed is incomplete."
+  exit 1
+}
+
+cmd_verify() {
+  echo "==> Verifying app responds on port ${PORT}..."
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/" 2>/dev/null || echo "000")
+  if [[ "${http_code}" == "200" ]] || [[ "${http_code}" == "302" ]] || [[ "${http_code}" == "301" ]] || [[ "${http_code}" == "303" ]]; then
+    echo "==> App is responding (HTTP ${http_code})."
+  else
+    echo "==> FAIL: App not responding (HTTP ${http_code})."
+    exit 1
+  fi
+
+  echo "==> Verifying login page loads..."
+  local login_body
+  login_body=$(curl -s -L --max-time 10 "http://localhost:${PORT}/" 2>/dev/null || echo "")
+  if echo "${login_body}" | grep -qi "login\|mot de passe\|password\|GLPI\|glpi"; then
+    echo "==> Login page loads and contains expected content."
+  else
+    echo "==> WARNING: Login page loaded but content check was ambiguous."
+    echo "==> This is expected if GLPI is installed in a non-English language or redirects."
+  fi
+  echo "==> Verification passed (basic smoke)."
+}
+
+cmd_reset() {
+  echo "==> Resetting environment (removing containers and volumes)..."
+  (
+    cd "${SCRIPT_DIR}"
+    docker compose -p "${COMPOSE_PROJECT_NAME}" down -v 2>/dev/null || true
+  )
+  echo "==> Reset complete. Run 'deploy' to start fresh."
+}
+
+cmd_stop() {
+  echo "==> Stopping containers..."
+  (
+    cd "${SCRIPT_DIR}"
+    docker compose -p "${COMPOSE_PROJECT_NAME}" down 2>/dev/null || true
+  )
+  echo "==> Stopped."
+}
+
+cmd_logs() {
+  (
+    cd "${SCRIPT_DIR}"
+    docker compose -p "${COMPOSE_PROJECT_NAME}" logs -f 2>/dev/null || echo "Containers not running."
+  )
+}
+
+cmd_status() {
+  local running=""
+  if docker ps --filter "name=glpi-app" --format "{{.Names}}" 2>/dev/null | grep -q "glpi-app"; then
+    running="true"
+    echo "Status: RUNNING"
+    echo "URL: http://localhost:${PORT}"
+    echo "Container: glpi-app"
+  fi
+  if docker ps --filter "name=glpi-db" --format "{{.Names}}" 2>/dev/null | grep -q "glpi-db"; then
+    [[ -z "${running}" ]] && echo "Status: PARTIAL (db only)"
+    echo "DB Container: glpi-db"
+    running="true"
+  fi
+  if [[ -z "${running}" ]]; then
+    echo "Status: NOT RUNNING"
+  fi
+}
+
+cmd_help() {
+  cat <<EOF
+GLPI - Tester Environment CLI
+
+Usage: ./tester-env <command> [--ref <git-ref>] [--port <port>] [--run-id <id>]
+
+Commands:
+  deploy    Build image, start services, install DB, set admin password
+  seed      Seed data placeholder (NOT IMPLEMENTED — returns non-zero)
+  verify    Basic smoke check (app responds, login page loads)
+  reset     Remove containers and volumes (clean slate)
+  stop      Stop containers (preserves data)
+  logs      Tail all service logs
+  status    Show container status and URL
+  help      Show this help message
+
+Options:
+  --ref <git-ref>
+            Git ref to checkout before deploy (for scenario baselines/mutants).
+  --port <port>
+            Host port (default: 8080). Only 8080 is supported for GLPI today
+            because docker-compose.yaml has hardcoded host port mappings.
+  --run-id <id>
+            NOT SUPPORTED. GLPI docker-compose.yaml uses hardcoded
+            container_name and port directives making true parallel run
+            isolation unsafe. supports_parallel_runs=false.
+
+Credentials: glpi / admin123
+
+Typical workflow:
+  ./tester-env deploy    # Build, start, install DB, set password
+  ./tester-env verify    # Smoke check
+  ./tester-env status    # Check status
+  ./tester-env logs      # Tail logs
+  ./tester-env stop      # Stop (preserves data)
+  ./tester-env reset     # Remove everything (clean slate)
+  ./tester-env deploy    # Fresh start
+EOF
+}
+
+main() {
+  local cmd="${1:-help}"
+  local ref=""
+
+  # Parse optional args
+  for ((i=2; i<=$#; i++)); do
+    local arg="${!i}"
+    case "${arg}" in
+      --ref)
+        local next=$((i+1))
+        if [[ ${next} -le $# ]]; then
+          ref="${!next}"
+          ((i++))
+        else
+          echo "Error: --ref requires a value"
+          exit 1
+        fi
+        ;;
+      --run-id)
+        local next=$((i+1))
+        if [[ ${next} -le $# ]]; then
+          RUN_ID="${!next}"
+          ((i++))
+        else
+          echo "Error: --run-id requires a value"
+          exit 1
+        fi
+        ;;
+      --port)
+        local next=$((i+1))
+        if [[ ${next} -le $# ]]; then
+          PORT="${!next}"
+          ((i++))
+        else
+          echo "Error: --port requires a value"
+          exit 1
+        fi
+        ;;
+      --help|-h)
+        cmd_help
+        exit 0
+        ;;
+      *)
+        echo "Unknown option: ${arg}"
+        cmd_help
+        exit 1
+        ;;
+    esac
+  done
+
+  refresh_names
+
+  case "${cmd}" in
+    deploy) cmd_deploy "${ref}" ;;
+    seed) cmd_seed ;;
+    verify) cmd_verify ;;
+    reset) cmd_reset ;;
+    stop) cmd_stop ;;
+    logs) cmd_logs ;;
+    status) cmd_status ;;
+    help|--help|-h) cmd_help ;;
+    *)
+      echo "Unknown command: ${cmd}"
+      cmd_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

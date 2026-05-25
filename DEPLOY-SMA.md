@@ -3,12 +3,12 @@
 ## Source
 
 Forked from: https://github.com/glpi-project/glpi  
-Baseline ref: `4e911fd8dfff0ec3e41988ff6eee2d7c8824eb0a`
+Baseline ref: `054011027235702ae1bb0d75f9daa2b324dde186`
 
 ## Build & Run
 
 ```bash
-docker compose up --build -d
+./tester-env deploy
 ```
 
 The build requires `HOST_USER_ID` and `HOST_GROUP_ID` args to align container `www-data` UID/GID with the host user. These are pinned in `docker-compose.yaml` for the target environment.
@@ -19,6 +19,26 @@ Services:
 - `mailpit`: Mail testing on port `8025`
 - `dbgate`: DB admin UI on port `9000`
 - `openldap`: LDAP for auth testing
+
+The `tester-env` wrapper supports:
+
+```bash
+./tester-env deploy
+./tester-env verify
+./tester-env status
+./tester-env logs
+./tester-env stop
+./tester-env reset
+```
+
+`./tester-env seed` is intentionally not implemented yet and returns non-zero.
+The default installer users are deterministic, but realistic seeded tickets,
+assets, entities, and users still require seed-engineer work before GLPI can be
+marked `data_populated`.
+
+GLPI currently does not support parallel scenario runs. The Compose file has
+hardcoded `container_name` and host port directives, so `--run-id` and non-8080
+`--port` values are rejected by the wrapper.
 
 ## First-Time Setup
 
@@ -67,12 +87,8 @@ Example: changing `__('Standard interface')` to `__('Mutated Standard interface'
 ## Reset
 
 ```bash
-docker compose down -v
-docker compose up --build -d
-docker exec -u www-data glpi-app php bin/console database:install \
-  --db-host=db --db-name=glpi --db-user=glpi --db-password=glpi \
-  --default-language=en_GB --force --reconfigure --no-telemetry -n
-docker exec -u www-data glpi-app php bin/console user:reset_password glpi -p admin123 -n
+./tester-env reset
+./tester-env deploy
 ```
 
 This returns the app to a clean state with deterministic credentials.

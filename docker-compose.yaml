@@ -12,9 +12,7 @@ services:
       - ".:/var/www/glpi:rw"
       - "custom_php_ini:/usr/local/etc/php/custom_conf.d/:rw"
     ports:
-      - "8080:80"
-      - "8090:8090" # E2E test server
-      - "9637:9637"
+      - "${HOST_PORT:-8080}:80"
     depends_on:
       - db
     environment:
@@ -44,15 +42,11 @@ services:
     restart: "unless-stopped"
     expose:
       - "1025"
-    ports:
-      - "8025:8025"
 
   dbgate:
     container_name: "glpi-dbgate"
     image: "dbgate/dbgate:latest"
     restart: "unless-stopped"
-    ports:
-      - "9000:3000"
     environment:
       CONNECTIONS: "glpi"
 

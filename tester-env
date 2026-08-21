@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUN_ID="default"
+PORT="8080"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+refresh_names() {
+  local suffix=""
+  if [[ "${RUN_ID}" != "default" ]]; then
+    suffix="-${RUN_ID}"
+  fi
+  COMPOSE_PROJECT_NAME="tester-env-glpi${suffix}"
+  APP_CONTAINER="${COMPOSE_PROJECT_NAME}-app"
+  DB_CONTAINER="${COMPOSE_PROJECT_NAME}-db"
+  MAILPIT_CONTAINER="${COMPOSE_PROJECT_NAME}-mailpit"
+  DBGATE_CONTAINER="${COMPOSE_PROJECT_NAME}-dbgate"
+  OPENLDAP_CONTAINER="${COMPOSE_PROJECT_NAME}-openldap"
+  export HOST_PORT="${PORT}"
+  export HOST_USER_ID="${HOST_USER_ID:-$(id -u)}"
+  export HOST_GROUP_ID="${HOST_GROUP_ID:-$(id -g)}"
+  export APP_CONTAINER DB_CONTAINER MAILPIT_CONTAINER DBGATE_CONTAINER OPENLDAP_CONTAINER
+  # Compose args: use override file if it exists (copied by rl-env for worktrees).
+  if [[ -f "${SCRIPT_DIR}/docker-compose.tester-env.yml" ]]; then
+    COMPOSE_ARGS="-f docker-compose.yaml -f docker-compose.tester-env.yml"
+  else
+    COMPOSE_ARGS=""  # fallback: standard compose, no override
+  fi
+}
+
+cmd_deploy() {
+  local ref="${1:-}"
+  if [[ -n "${ref}" ]]; then
+    git -C "${SCRIPT_DIR}" checkout "${ref}"
+  fi
+  # shellcheck disable=SC2086
+  (cd "${SCRIPT_DIR}" && docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_ARGS} up --build -d)
+
+  for i in $(seq 1 30); do
+    if docker exec "${DB_CONTAINER}" mariadb-admin ping -h localhost -u root -pglpi --silent >/dev/null 2>&1; then break; fi
+    sleep 3
+  done
+  if ! docker exec "${DB_CONTAINER}" mariadb-admin ping -h localhost -u root -pglpi --silent >/dev/null 2>&1; then
+    echo "==> ERROR: Database did not become ready."
+    exit 1
+  fi
+
+  if ! docker exec "${APP_CONTAINER}" test -d /var/www/glpi/vendor/composer 2>/dev/null; then
+    docker exec -u www-data "${APP_CONTAINER}" php bin/console dependencies install
+  fi
+  docker exec -u www-data "${APP_CONTAINER}" php bin/console database:install \
+    --db-host=db --db-name=glpi --db-user=glpi --db-password=glpi \
+    --default-language=en_GB --force --reconfigure --no-telemetry -n
+  docker exec -u www-data "${APP_CONTAINER}" php bin/console user:reset_password glpi -p admin123 -n
+  echo "==> Deployment complete. URL: http://localhost:${PORT} Credentials: glpi / admin123"
+}
+
+cmd_seed() {
+  echo "==> Seeding deterministic Northwind IT operations data..."
+  if ! docker exec "${DB_CONTAINER}" mariadb-admin ping -h localhost -u root -pglpi --silent >/dev/null 2>&1; then
+    echo "==> FAIL: database container is not ready. Run './tester-env deploy' first."
+    exit 1
+  fi
+  docker exec -i "${DB_CONTAINER}" mariadb -uglpi -pglpi glpi < "${SCRIPT_DIR}/tester-env-seed.sql"
+  for user in seed.approver seed.substitute seed.assetowner seed.projectmember; do
+    docker exec -u www-data "${APP_CONTAINER}" php bin/console user:reset_password "${user}" -p admin123 -n >/dev/null
+  done
+  echo "==> Seed complete. Profile: northwind-it-ops."
+  echo "==> Seeded users: seed.approver, seed.substitute, seed.assetowner, seed.projectmember (password admin123)."
+  echo "==> Seeded stable records: 3 entities, 2 groups, 3 tickets, 2 computers, 1 project, 1 project task, 1 planning event."
+}
+
+cmd_verify() {
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/" 2>/dev/null || true)
+  case "${http_code}" in 200|301|302|303) ;; *) echo "==> FAIL: App not responding (HTTP ${http_code})."; exit 1 ;; esac
+  echo "==> App is responding (HTTP ${http_code})."
+  if docker exec "${DB_CONTAINER}" mariadb -N -uglpi -pglpi glpi -e "
+    SELECT IF(
+      (SELECT COUNT(*) FROM glpi_entities WHERE name LIKE 'Seed %') = 3
+      AND (SELECT COUNT(*) FROM glpi_groups WHERE name LIKE 'Seed %') = 2
+      AND (SELECT COUNT(*) FROM glpi_users WHERE name LIKE 'seed.%') = 4
+      AND (SELECT COUNT(*) FROM glpi_tickets WHERE name LIKE 'Seed:%') = 3
+      AND (SELECT COUNT(*) FROM glpi_computers WHERE name LIKE 'Seed-%') = 2
+      AND (SELECT COUNT(*) FROM glpi_projects WHERE name LIKE 'Seed:%') = 1
+      AND (SELECT COUNT(*) FROM glpi_projecttasks WHERE name LIKE 'Seed:%') = 1
+      AND (SELECT COUNT(*) FROM glpi_planningexternalevents WHERE name LIKE 'Seed:%') = 1,
+      'PASS', 'FAIL'
+    );" | grep -q '^PASS$'; then
+    echo "==> Seed verification passed (northwind-it-ops counts match)."
+  else
+    echo "==> FAIL: deterministic seed profile is missing or has unexpected counts."
+    exit 1
+  fi
+}
+
+cmd_reset() {
+  # shellcheck disable=SC2086
+  (cd "${SCRIPT_DIR}" && docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_ARGS} down -v 2>/dev/null || true)
+}
+cmd_stop() {
+  # shellcheck disable=SC2086
+  (cd "${SCRIPT_DIR}" && docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_ARGS} down 2>/dev/null || true)
+}
+cmd_logs() {
+  # shellcheck disable=SC2086
+  (cd "${SCRIPT_DIR}" && docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_ARGS} logs -f 2>/dev/null || true)
+}
+cmd_status() { docker ps --filter "name=${COMPOSE_PROJECT_NAME}" --format "{{.Names}} {{.Status}} {{.Ports}}"; }
+cmd_help() { echo "Usage: ./tester-env {deploy|seed|verify|reset|stop|logs|status} [--ref <git-ref>] [--port <port>] [--run-id <id>]"; }
+
+main() {
+  local cmd="${1:-help}" ref=""
+  for ((i=2; i<=$#; i++)); do
+    case "${!i}" in
+      --ref) i=$((i+1)); ref="${!i}" ;;
+      --port) i=$((i+1)); PORT="${!i}" ;;
+      --run-id) i=$((i+1)); RUN_ID="${!i}" ;;
+      --help|-h) cmd_help; exit 0 ;;
+      *) echo "Unknown option: ${!i}"; cmd_help; exit 1 ;;
+    esac
+  done
+  refresh_names
+  case "${cmd}" in
+    deploy) cmd_deploy "${ref}" ;; seed) cmd_seed ;; verify) cmd_verify ;; reset) cmd_reset ;;
+    stop) cmd_stop ;; logs) cmd_logs ;; status) cmd_status ;; help|--help|-h) cmd_help ;;
+    *) echo "Unknown command: ${cmd}"; cmd_help; exit 1 ;;
+  esac
+}
+
+main "$@"

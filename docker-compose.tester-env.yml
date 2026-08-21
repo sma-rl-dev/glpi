@@ -1,0 +1,19 @@
+# docker-compose.tester-env.yml — per-run overrides for tester-env CLI.
+# Applied on top of docker-compose.yaml via:
+#   docker compose -f docker-compose.yaml -f docker-compose.tester-env.yml
+# Variables are exported by the tester-env script before compose runs.
+services:
+  app:
+    container_name: "${APP_CONTAINER}"
+    build:
+      args:
+        - HOST_USER_ID
+        - HOST_GROUP_ID
+  db:
+    container_name: "${DB_CONTAINER}"
+  mailpit:
+    container_name: "${MAILPIT_CONTAINER}"
+  dbgate:
+    container_name: "${DBGATE_CONTAINER}"
+  openldap:
+    container_name: "${OPENLDAP_CONTAINER}"

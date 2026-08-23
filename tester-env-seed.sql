@@ -16,6 +16,9 @@ DELETE FROM glpi_planningexternalevents WHERE name LIKE 'Seed:%';
 DELETE FROM glpi_computers WHERE name LIKE 'Seed-%';
 DELETE FROM glpi_groups_users WHERE groups_id IN (SELECT id FROM glpi_groups WHERE name LIKE 'Seed %') OR users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%');
 DELETE FROM glpi_profiles_users WHERE users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%');
+DELETE FROM glpi_validatorsubstitutes WHERE users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%') OR users_id_substitute IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%');
+DELETE FROM glpi_profilerights WHERE profiles_id = 100;
+DELETE FROM glpi_profiles WHERE id = 100 AND name = 'Seed Approval Substitute';
 DELETE FROM glpi_users WHERE name LIKE 'seed.%';
 DELETE FROM glpi_groups WHERE name LIKE 'Seed %';
 DELETE FROM glpi_entities WHERE name LIKE 'Seed %';
@@ -32,10 +35,24 @@ VALUES
   (0, 1, 'Seed Approval Board', 'SEED-APPROVAL', 'Group approvers for seeded validation tickets', 'Seed Approval Board', 1, 1, 1, @now, @now),
   (0, 1, 'Seed Field Support', 'SEED-FIELD', 'Technician group shown on dashboard widgets', 'Seed Field Support', 1, 1, 1, @now, @now);
 
+-- Dedicated low-visibility profile: holders can search tickets and validate
+-- approvals but lack the READALL/READGROUP/READASSIGN/READNEWTICKET visibility
+-- shortcuts, so ticket visibility comes only from requester/observer links or
+-- the validation-target criteria (direct user/group targets plus authorized
+-- substitutes). Rights bit values: ticket = READMY(1)|UPDATE(2)|CREATE(4)|
+-- OWN(32768)|SURVEY(131072); ticketvalidation = PURGE(16)|CREATEREQUEST(1024)|
+-- CREATEINCIDENT(2048)|VALIDATEREQUEST(4096)|VALIDATEINCIDENT(8192).
+INSERT INTO glpi_profiles (id, name, interface, comment, last_rights_update)
+VALUES (100, 'Seed Approval Substitute', 'central', 'Tester-env approval substitute profile with validation-only ticket visibility.', @now);
+INSERT INTO glpi_profilerights (profiles_id, name, rights)
+SELECT 100, name, rights FROM glpi_profilerights WHERE profiles_id = 6;
+UPDATE glpi_profilerights SET rights = 167847 WHERE profiles_id = 100 AND name = 'ticket';
+UPDATE glpi_profilerights SET rights = 15376 WHERE profiles_id = 100 AND name = 'ticketvalidation';
+
 INSERT INTO glpi_users (name, realname, firstname, language, is_active, authtype, profiles_id, entities_id, groups_id, comment, substitution_start_date, substitution_end_date, date_creation, date_mod)
 VALUES
-  ('seed.approver', 'Patel', 'Maya', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Seed approval owner', '2026-01-01 00:00:00', '2026-12-31 23:59:59', @now, @now),
-  ('seed.substitute', 'Reed', 'Noah', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Seed approval substitute/delegate', NULL, NULL, @now, @now),
+  ('seed.approver', 'Patel', 'Maya', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Seed approval owner and validator; delegates to authorized substitute.', NULL, NULL, @now, @now),
+  ('seed.substitute', 'Reed', 'Noah', 'en_GB', 1, 1, 100, 0, 0, 'Seed approval substitute/delegate with validation-only visibility.', NULL, NULL, @now, @now),
   ('seed.assetowner', 'Chen', 'Iris', 'en_GB', 1, 1, 2, 0, (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 'Seed user with multiple used assets', NULL, NULL, @now, @now),
   ('seed.projectmember', 'Okafor', 'Leo', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 'Seed project member', NULL, NULL, @now, @now);
 
@@ -45,7 +62,6 @@ SELECT id, profiles_id, 0, 1, 1 FROM glpi_users WHERE name LIKE 'seed.%';
 INSERT INTO glpi_groups_users (users_id, groups_id, is_manager, is_userdelegate)
 VALUES
   ((SELECT id FROM glpi_users WHERE name='seed.approver'), (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 1, 0),
-  ((SELECT id FROM glpi_users WHERE name='seed.substitute'), (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 0, 1),
   ((SELECT id FROM glpi_users WHERE name='seed.assetowner'), (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 0, 0),
   ((SELECT id FROM glpi_users WHERE name='seed.projectmember'), (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 0, 0);
 
@@ -73,6 +89,13 @@ INSERT INTO glpi_ticketvalidations (entities_id, users_id, tickets_id, users_id_
 VALUES
   (0, 2, (SELECT id FROM glpi_tickets WHERE name='Seed: Approval needed for VPN concentrator'), (SELECT id FROM glpi_users WHERE name='seed.approver'), 'User', (SELECT id FROM glpi_users WHERE name='seed.approver'), 'Please approve VPN capacity increase.', 2, '2026-01-15 09:10:00'),
   (0, 2, (SELECT id FROM glpi_tickets WHERE name='Seed: Approval needed for VPN concentrator'), 0, 'Group', (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Group approval for change window.', 2, '2026-01-15 09:15:00');
+
+-- Authorized substitute relationship: seed.substitute may act as approval
+-- substitute for validator seed.approver. Baseline getTargetCriteriaForUser()
+-- lets the substitute see tickets awaiting seed.approver's validation; a
+-- regression that drops substitute matching removes that visibility.
+INSERT INTO glpi_validatorsubstitutes (users_id, users_id_substitute)
+VALUES ((SELECT id FROM glpi_users WHERE name='seed.approver'), (SELECT id FROM glpi_users WHERE name='seed.substitute'));
 
 INSERT INTO glpi_items_tickets (itemtype, items_id, tickets_id)
 VALUES

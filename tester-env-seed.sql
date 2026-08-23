@@ -40,13 +40,13 @@ VALUES
 -- shortcuts, so ticket visibility comes only from requester/observer links or
 -- the validation-target criteria (direct user/group targets plus authorized
 -- substitutes). Rights bit values: ticket = READMY(1)|UPDATE(2)|CREATE(4)|
--- OWN(32768)|SURVEY(131072); ticketvalidation = PURGE(16)|CREATEREQUEST(1024)|
+-- OWN(32768)|SURVEY(131072) = 163847; ticketvalidation = PURGE(16)|CREATEREQUEST(1024)|
 -- CREATEINCIDENT(2048)|VALIDATEREQUEST(4096)|VALIDATEINCIDENT(8192).
 INSERT INTO glpi_profiles (id, name, interface, comment, last_rights_update)
 VALUES (100, 'Seed Approval Substitute', 'central', 'Tester-env approval substitute profile with validation-only ticket visibility.', @now);
 INSERT INTO glpi_profilerights (profiles_id, name, rights)
 SELECT 100, name, rights FROM glpi_profilerights WHERE profiles_id = 6;
-UPDATE glpi_profilerights SET rights = 167847 WHERE profiles_id = 100 AND name = 'ticket';
+UPDATE glpi_profilerights SET rights = 163847 WHERE profiles_id = 100 AND name = 'ticket';
 UPDATE glpi_profilerights SET rights = 15376 WHERE profiles_id = 100 AND name = 'ticketvalidation';
 
 INSERT INTO glpi_users (name, realname, firstname, language, is_active, authtype, profiles_id, entities_id, groups_id, comment, substitution_start_date, substitution_end_date, date_creation, date_mod)

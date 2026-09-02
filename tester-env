@@ -67,7 +67,7 @@ cmd_seed() {
   done
   echo "==> Seed complete. Profile: northwind-it-ops."
   echo "==> Seeded users: seed.approver, seed.substitute, seed.assetowner, seed.projectmember (password admin123)."
-  echo "==> Seeded stable records: 3 entities, 2 groups, 3 tickets, 2 computers, 1 project, 1 project task, 1 planning event."
+  echo "==> Seeded stable records: 3 entities, 2 groups, 3 tickets, 2 computers, 1 project, 1 project task, 1 planning event, 2 ticket templates, 1 ITIL category."
 }
 
 cmd_verify() {
@@ -84,7 +84,15 @@ cmd_verify() {
       AND (SELECT COUNT(*) FROM glpi_computers WHERE name LIKE 'Seed-%') = 2
       AND (SELECT COUNT(*) FROM glpi_projects WHERE name LIKE 'Seed:%') = 1
       AND (SELECT COUNT(*) FROM glpi_projecttasks WHERE name LIKE 'Seed:%') = 1
-      AND (SELECT COUNT(*) FROM glpi_planningexternalevents WHERE name LIKE 'Seed:%') = 1,
+      AND (SELECT COUNT(*) FROM glpi_planningexternalevents WHERE name LIKE 'Seed:%') = 1
+      AND (SELECT COUNT(*) FROM glpi_tickettemplates WHERE name LIKE 'Seed:%') = 2
+      AND (SELECT COUNT(*) FROM glpi_itilcategories WHERE name LIKE 'Seed %') = 1
+      AND (SELECT COUNT(*) FROM glpi_tickettemplatepredefinedfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template')) = 3
+      AND (SELECT COUNT(*) FROM glpi_tickettemplatehiddenfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template')) = 1
+      AND (SELECT COUNT(*) FROM glpi_tickets t WHERE t.name='Seed: Replace Iris docking station'
+           AND t.itilcategories_id = (SELECT id FROM glpi_itilcategories WHERE name='Seed Hardware Replacement')
+           AND t.tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Standard Intake Template')
+           AND t.type = 1 AND t.priority = 2 AND t.urgency = 2 AND t.impact = 2) = 1,
       'PASS', 'FAIL'
     );" | grep -q '^PASS$'; then
     echo "==> Seed verification passed (northwind-it-ops counts match)."

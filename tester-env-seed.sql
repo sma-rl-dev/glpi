@@ -1,5 +1,5 @@
 -- Deterministic tester-env GLPI seed profile: northwind-it-ops
--- Theme: Northwind internal IT operations with approvals, assets, projects, entities, and planning.
+-- Theme: Northwind internal IT operations with approvals, assets, projects, entities, planning, and ITIL ticket templates.
 
 SET @now := '2026-01-15 09:00:00';
 
@@ -9,6 +9,12 @@ DELETE FROM glpi_tickets_users WHERE tickets_id IN (SELECT id FROM glpi_tickets 
 DELETE FROM glpi_groups_tickets WHERE tickets_id IN (SELECT id FROM glpi_tickets WHERE name LIKE 'Seed:%');
 DELETE FROM glpi_items_tickets WHERE tickets_id IN (SELECT id FROM glpi_tickets WHERE name LIKE 'Seed:%');
 DELETE FROM glpi_tickets WHERE name LIKE 'Seed:%';
+DELETE FROM glpi_tickettemplatehiddenfields WHERE tickettemplates_id IN (SELECT id FROM glpi_tickettemplates WHERE name LIKE 'Seed:%');
+DELETE FROM glpi_tickettemplatepredefinedfields WHERE tickettemplates_id IN (SELECT id FROM glpi_tickettemplates WHERE name LIKE 'Seed:%');
+DELETE FROM glpi_tickettemplatemandatoryfields WHERE tickettemplates_id IN (SELECT id FROM glpi_tickettemplates WHERE name LIKE 'Seed:%');
+DELETE FROM glpi_tickettemplatereadonlyfields WHERE tickettemplates_id IN (SELECT id FROM glpi_tickettemplates WHERE name LIKE 'Seed:%');
+DELETE FROM glpi_itilcategories WHERE name LIKE 'Seed %';
+DELETE FROM glpi_tickettemplates WHERE name LIKE 'Seed:%';
 DELETE FROM glpi_projectteams WHERE projects_id IN (SELECT id FROM glpi_projects WHERE name LIKE 'Seed:%');
 DELETE FROM glpi_projecttasks WHERE name LIKE 'Seed:%';
 DELETE FROM glpi_projects WHERE name LIKE 'Seed:%';
@@ -16,9 +22,6 @@ DELETE FROM glpi_planningexternalevents WHERE name LIKE 'Seed:%';
 DELETE FROM glpi_computers WHERE name LIKE 'Seed-%';
 DELETE FROM glpi_groups_users WHERE groups_id IN (SELECT id FROM glpi_groups WHERE name LIKE 'Seed %') OR users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%');
 DELETE FROM glpi_profiles_users WHERE users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%');
-DELETE FROM glpi_validatorsubstitutes WHERE users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%') OR users_id_substitute IN (SELECT id FROM glpi_users WHERE name LIKE 'seed.%');
-DELETE FROM glpi_profilerights WHERE profiles_id = 100;
-DELETE FROM glpi_profiles WHERE id = 100 AND name = 'Seed Approval Substitute';
 DELETE FROM glpi_users WHERE name LIKE 'seed.%';
 DELETE FROM glpi_groups WHERE name LIKE 'Seed %';
 DELETE FROM glpi_entities WHERE name LIKE 'Seed %';
@@ -35,24 +38,10 @@ VALUES
   (0, 1, 'Seed Approval Board', 'SEED-APPROVAL', 'Group approvers for seeded validation tickets', 'Seed Approval Board', 1, 1, 1, @now, @now),
   (0, 1, 'Seed Field Support', 'SEED-FIELD', 'Technician group shown on dashboard widgets', 'Seed Field Support', 1, 1, 1, @now, @now);
 
--- Dedicated low-visibility profile: holders can search tickets and validate
--- approvals but lack the READALL/READGROUP/READASSIGN/READNEWTICKET visibility
--- shortcuts, so ticket visibility comes only from requester/observer links or
--- the validation-target criteria (direct user/group targets plus authorized
--- substitutes). Rights bit values: ticket = READMY(1)|UPDATE(2)|CREATE(4)|
--- OWN(32768)|SURVEY(131072) = 163847; ticketvalidation = PURGE(16)|CREATEREQUEST(1024)|
--- CREATEINCIDENT(2048)|VALIDATEREQUEST(4096)|VALIDATEINCIDENT(8192).
-INSERT INTO glpi_profiles (id, name, interface, comment, last_rights_update)
-VALUES (100, 'Seed Approval Substitute', 'central', 'Tester-env approval substitute profile with validation-only ticket visibility.', @now);
-INSERT INTO glpi_profilerights (profiles_id, name, rights)
-SELECT 100, name, rights FROM glpi_profilerights WHERE profiles_id = 6;
-UPDATE glpi_profilerights SET rights = 163847 WHERE profiles_id = 100 AND name = 'ticket';
-UPDATE glpi_profilerights SET rights = 15376 WHERE profiles_id = 100 AND name = 'ticketvalidation';
-
 INSERT INTO glpi_users (name, realname, firstname, language, is_active, authtype, profiles_id, entities_id, groups_id, comment, substitution_start_date, substitution_end_date, date_creation, date_mod)
 VALUES
-  ('seed.approver', 'Patel', 'Maya', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Seed approval owner and validator; delegates to authorized substitute.', NULL, NULL, @now, @now),
-  ('seed.substitute', 'Reed', 'Noah', 'en_GB', 1, 1, 100, 0, 0, 'Seed approval substitute/delegate with validation-only visibility.', NULL, NULL, @now, @now),
+  ('seed.approver', 'Patel', 'Maya', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Seed approval owner', '2026-01-01 00:00:00', '2026-12-31 23:59:59', @now, @now),
+  ('seed.substitute', 'Reed', 'Noah', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Seed approval substitute/delegate', NULL, NULL, @now, @now),
   ('seed.assetowner', 'Chen', 'Iris', 'en_GB', 1, 1, 2, 0, (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 'Seed user with multiple used assets', NULL, NULL, @now, @now),
   ('seed.projectmember', 'Okafor', 'Leo', 'en_GB', 1, 1, 6, 0, (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 'Seed project member', NULL, NULL, @now, @now);
 
@@ -62,6 +51,7 @@ SELECT id, profiles_id, 0, 1, 1 FROM glpi_users WHERE name LIKE 'seed.%';
 INSERT INTO glpi_groups_users (users_id, groups_id, is_manager, is_userdelegate)
 VALUES
   ((SELECT id FROM glpi_users WHERE name='seed.approver'), (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 1, 0),
+  ((SELECT id FROM glpi_users WHERE name='seed.substitute'), (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 0, 1),
   ((SELECT id FROM glpi_users WHERE name='seed.assetowner'), (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 0, 0),
   ((SELECT id FROM glpi_users WHERE name='seed.projectmember'), (SELECT id FROM glpi_groups WHERE name='Seed Field Support'), 0, 0);
 
@@ -70,11 +60,33 @@ VALUES
   (0, 'Seed-Laptop-Iris-01', 'NW-LAP-001', 'ASSET-IRIS-LAPTOP', (SELECT id FROM glpi_users WHERE name='seed.assetowner'), (SELECT id FROM glpi_users WHERE name='seed.projectmember'), 'Primary laptop for used-items filtering', @now, @now, 1),
   (0, 'Seed-Tablet-Iris-02', 'NW-TAB-002', 'ASSET-IRIS-TABLET', (SELECT id FROM glpi_users WHERE name='seed.assetowner'), (SELECT id FROM glpi_users WHERE name='seed.projectmember'), 'Tablet for used-items filtering', @now, @now, 1);
 
-INSERT INTO glpi_tickets (entities_id, name, date, date_creation, date_mod, users_id_lastupdater, status, users_id_recipient, requesttypes_id, content, urgency, impact, priority, type, global_validation)
+-- Ticket templates for ITIL template checks: a standard intake template recorded on the seeded
+-- ticket and a specialized hardware replacement template wired to its category for incidents.
+-- Field nums (Ticket search options): 3=priority, 10=urgency, 11=impact.
+INSERT INTO glpi_tickettemplates (name, entities_id, is_recursive, comment, allowed_statuses)
 VALUES
-  (0, 'Seed: Approval needed for VPN concentrator', '2026-01-15 09:05:00', @now, @now, 2, 2, (SELECT id FROM glpi_users WHERE name='seed.assetowner'), 1, 'Approval workflow ticket visible to substitute and group approvers.', 3, 3, 3, 1, 2),
-  (0, 'Seed: Replace Iris docking station', '2026-01-15 10:00:00', @now, @now, 2, 2, (SELECT id FROM glpi_users WHERE name='seed.assetowner'), 1, 'Editable ticket for save-and-navigate warning checks.', 2, 2, 2, 1, 1),
-  (0, 'Seed: Field Support WiFi rollout', '2026-01-15 11:00:00', @now, @now, 2, 1, (SELECT id FROM glpi_users WHERE name='seed.projectmember'), 1, 'Dashboard group label/count source ticket.', 3, 2, 3, 1, 1);
+  ('Seed: Standard Intake Template', 0, 1, 'Default intake template recorded on tickets logged through the standard flow.', '[1,10,2,3,4,5,6]'),
+  ('Seed: Hardware Replacement Template', 0, 1, 'Hardware replacement flow: fixed priority values, no agent choice.', '[1,10,2,3,4,5,6]');
+
+INSERT INTO glpi_tickettemplatepredefinedfields (tickettemplates_id, num, value)
+VALUES
+  ((SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template'), 10, '3'),
+  ((SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template'), 11, '3'),
+  ((SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template'), 3, '4');
+
+INSERT INTO glpi_tickettemplatehiddenfields (tickettemplates_id, num)
+VALUES
+  ((SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template'), 3);
+
+INSERT INTO glpi_itilcategories (entities_id, is_recursive, name, completename, comment, level, is_helpdeskvisible, tickettemplates_id_incident, tickettemplates_id_demand, is_incident, is_request, is_problem, is_change, date_mod, date_creation)
+VALUES
+  (0, 1, 'Seed Hardware Replacement', 'Seed Hardware Replacement', 'Hardware swap requests; incidents use the hardware replacement template.', 1, 1, (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template'), 0, 1, 1, 1, 1, @now, @now);
+
+INSERT INTO glpi_tickets (entities_id, name, date, date_creation, date_mod, users_id_lastupdater, status, users_id_recipient, requesttypes_id, content, urgency, impact, priority, type, global_validation, itilcategories_id, tickettemplates_id)
+VALUES
+  (0, 'Seed: Approval needed for VPN concentrator', '2026-01-15 09:05:00', @now, @now, 2, 2, (SELECT id FROM glpi_users WHERE name='seed.assetowner'), 1, 'Approval workflow ticket visible to substitute and group approvers.', 3, 3, 3, 1, 2, 0, 0),
+  (0, 'Seed: Replace Iris docking station', '2026-01-15 10:00:00', @now, @now, 2, 2, (SELECT id FROM glpi_users WHERE name='seed.assetowner'), 1, 'Editable ticket for save-and-navigate warning checks.', 2, 2, 2, 1, 1, (SELECT id FROM glpi_itilcategories WHERE name='Seed Hardware Replacement'), (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Standard Intake Template')),
+  (0, 'Seed: Field Support WiFi rollout', '2026-01-15 11:00:00', @now, @now, 2, 1, (SELECT id FROM glpi_users WHERE name='seed.projectmember'), 1, 'Dashboard group label/count source ticket.', 3, 2, 3, 1, 1, 0, 0);
 
 INSERT INTO glpi_tickets_users (tickets_id, users_id, type)
 SELECT id, (SELECT id FROM glpi_users WHERE name='seed.assetowner'), 1 FROM glpi_tickets WHERE name IN ('Seed: Approval needed for VPN concentrator', 'Seed: Replace Iris docking station')
@@ -89,13 +101,6 @@ INSERT INTO glpi_ticketvalidations (entities_id, users_id, tickets_id, users_id_
 VALUES
   (0, 2, (SELECT id FROM glpi_tickets WHERE name='Seed: Approval needed for VPN concentrator'), (SELECT id FROM glpi_users WHERE name='seed.approver'), 'User', (SELECT id FROM glpi_users WHERE name='seed.approver'), 'Please approve VPN capacity increase.', 2, '2026-01-15 09:10:00'),
   (0, 2, (SELECT id FROM glpi_tickets WHERE name='Seed: Approval needed for VPN concentrator'), 0, 'Group', (SELECT id FROM glpi_groups WHERE name='Seed Approval Board'), 'Group approval for change window.', 2, '2026-01-15 09:15:00');
-
--- Authorized substitute relationship: seed.substitute may act as approval
--- substitute for validator seed.approver. Baseline getTargetCriteriaForUser()
--- lets the substitute see tickets awaiting seed.approver's validation; a
--- regression that drops substitute matching removes that visibility.
-INSERT INTO glpi_validatorsubstitutes (users_id, users_id_substitute)
-VALUES ((SELECT id FROM glpi_users WHERE name='seed.approver'), (SELECT id FROM glpi_users WHERE name='seed.substitute'));
 
 INSERT INTO glpi_items_tickets (itemtype, items_id, tickets_id)
 VALUES

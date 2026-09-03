@@ -89,6 +89,12 @@ cmd_verify() {
       AND (SELECT COUNT(*) FROM glpi_itilcategories WHERE name LIKE 'Seed %') = 1
       AND (SELECT COUNT(*) FROM glpi_tickettemplatepredefinedfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template')) = 3
       AND (SELECT COUNT(*) FROM glpi_tickettemplatehiddenfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template')) = 1
+      AND (SELECT COUNT(*) FROM glpi_profiles WHERE id = 100 AND name = 'Seed Approval Substitute') = 1
+      AND (SELECT COUNT(*) FROM glpi_profilerights WHERE profiles_id = 100 AND name = 'ticket' AND rights = 163847) = 1
+      AND (SELECT COUNT(*) FROM glpi_profilerights WHERE profiles_id = 100 AND name = 'ticketvalidation' AND rights = 15376) = 1
+      AND (SELECT COUNT(*) FROM glpi_users WHERE name = 'seed.substitute' AND profiles_id = 100 AND groups_id = 0) = 1
+      AND (SELECT COUNT(*) FROM glpi_groups_users gu JOIN glpi_users u ON u.id = gu.users_id WHERE u.name = 'seed.substitute') = 0
+      AND (SELECT COUNT(*) FROM glpi_validatorsubstitutes vs JOIN glpi_users owner ON owner.id = vs.users_id JOIN glpi_users substitute ON substitute.id = vs.users_id_substitute WHERE owner.name = 'seed.approver' AND substitute.name = 'seed.substitute') = 1
       AND (SELECT COUNT(*) FROM glpi_tickets t WHERE t.name='Seed: Replace Iris docking station'
            AND t.itilcategories_id = (SELECT id FROM glpi_itilcategories WHERE name='Seed Hardware Replacement')
            AND t.tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Standard Intake Template')

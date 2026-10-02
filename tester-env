@@ -65,6 +65,9 @@ cmd_seed() {
   for user in maya.patel noah.reed iris.chen leo.okafor; do
     docker exec -u www-data "${APP_CONTAINER}" php bin/console user:reset_password "${user}" -p admin123 -n >/dev/null
   done
+  # Compile the first-request styles before a tester reaches the login page.
+  curl -fsS "http://localhost:${PORT}/front/css.php?file=css/glpi.scss" -o /dev/null
+  curl -fsS "http://localhost:${PORT}/front/css.php?file=css/core_palettes.scss" -o /dev/null
   echo "==> Seed complete. Profile: northwind-it-ops."
   echo "==> Seeded users: maya.patel, noah.reed, iris.chen, leo.okafor (password admin123)."
   echo "==> Seeded stable records: 3 entities, 2 groups, 3 tickets, 2 computers, 1 project, 1 project task, 1 planning event, 2 ticket templates, 1 ITIL category."
@@ -77,7 +80,8 @@ cmd_verify() {
   echo "==> App is responding (HTTP ${http_code})."
   if docker exec "${DB_CONTAINER}" mariadb -N -uglpi -pglpi glpi -e "
     SELECT IF(
-      (SELECT COUNT(*) FROM glpi_entities WHERE name IN ('Zeta Division', 'Alpha Service Centre', 'Beta Division')) = 3
+      (SELECT value FROM glpi_configs WHERE context = 'core' AND name = 'is_demo_dashboards') = '0'
+      AND (SELECT COUNT(*) FROM glpi_entities WHERE name IN ('Zeta Division', 'Alpha Service Centre', 'Beta Division')) = 3
       AND (SELECT COUNT(*) FROM glpi_groups WHERE name IN ('Approval Board', 'Field Support')) = 2
       AND (SELECT COUNT(*) FROM glpi_users WHERE name IN ('maya.patel', 'noah.reed', 'iris.chen', 'leo.okafor')) = 4
       AND (SELECT COUNT(*) FROM glpi_tickets WHERE name IN ('Approval needed for VPN concentrator', 'Replace Iris docking station', 'Field Support WiFi rollout')) = 3

@@ -3,6 +3,9 @@
 
 SET @now := '2026-01-15 09:00:00';
 
+-- Dashboards must reflect the business records rather than placeholder demo data.
+UPDATE glpi_configs SET value = '0' WHERE context = 'core' AND name = 'is_demo_dashboards';
+
 -- Clean only tester-env owned records so re-running seed is deterministic.
 DELETE FROM glpi_ticketvalidations WHERE tickets_id IN (SELECT id FROM glpi_tickets WHERE name IN ('Approval needed for VPN concentrator', 'Replace Iris docking station', 'Field Support WiFi rollout'));
 DELETE FROM glpi_tickets_users WHERE tickets_id IN (SELECT id FROM glpi_tickets WHERE name IN ('Approval needed for VPN concentrator', 'Replace Iris docking station', 'Field Support WiFi rollout'));

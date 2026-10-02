@@ -62,11 +62,11 @@ cmd_seed() {
     exit 1
   fi
   docker exec -i "${DB_CONTAINER}" mariadb -uglpi -pglpi glpi < "${SCRIPT_DIR}/tester-env-seed.sql"
-  for user in seed.approver seed.substitute seed.assetowner seed.projectmember; do
+  for user in maya.patel noah.reed iris.chen leo.okafor; do
     docker exec -u www-data "${APP_CONTAINER}" php bin/console user:reset_password "${user}" -p admin123 -n >/dev/null
   done
   echo "==> Seed complete. Profile: northwind-it-ops."
-  echo "==> Seeded users: seed.approver, seed.substitute, seed.assetowner, seed.projectmember (password admin123)."
+  echo "==> Seeded users: maya.patel, noah.reed, iris.chen, leo.okafor (password admin123)."
   echo "==> Seeded stable records: 3 entities, 2 groups, 3 tickets, 2 computers, 1 project, 1 project task, 1 planning event, 2 ticket templates, 1 ITIL category."
 }
 
@@ -77,27 +77,27 @@ cmd_verify() {
   echo "==> App is responding (HTTP ${http_code})."
   if docker exec "${DB_CONTAINER}" mariadb -N -uglpi -pglpi glpi -e "
     SELECT IF(
-      (SELECT COUNT(*) FROM glpi_entities WHERE name LIKE 'Seed %') = 3
-      AND (SELECT COUNT(*) FROM glpi_groups WHERE name LIKE 'Seed %') = 2
-      AND (SELECT COUNT(*) FROM glpi_users WHERE name LIKE 'seed.%') = 4
-      AND (SELECT COUNT(*) FROM glpi_tickets WHERE name LIKE 'Seed:%') = 3
-      AND (SELECT COUNT(*) FROM glpi_computers WHERE name LIKE 'Seed-%') = 2
-      AND (SELECT COUNT(*) FROM glpi_projects WHERE name LIKE 'Seed:%') = 1
-      AND (SELECT COUNT(*) FROM glpi_projecttasks WHERE name LIKE 'Seed:%') = 1
-      AND (SELECT COUNT(*) FROM glpi_planningexternalevents WHERE name LIKE 'Seed:%') = 1
-      AND (SELECT COUNT(*) FROM glpi_tickettemplates WHERE name LIKE 'Seed:%') = 2
-      AND (SELECT COUNT(*) FROM glpi_itilcategories WHERE name LIKE 'Seed %') = 1
-      AND (SELECT COUNT(*) FROM glpi_tickettemplatepredefinedfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template')) = 3
-      AND (SELECT COUNT(*) FROM glpi_tickettemplatehiddenfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Hardware Replacement Template')) = 1
-      AND (SELECT COUNT(*) FROM glpi_profiles WHERE id = 100 AND name = 'Seed Approval Substitute') = 1
+      (SELECT COUNT(*) FROM glpi_entities WHERE name IN ('Zeta Division', 'Alpha Service Centre', 'Beta Division')) = 3
+      AND (SELECT COUNT(*) FROM glpi_groups WHERE name IN ('Approval Board', 'Field Support')) = 2
+      AND (SELECT COUNT(*) FROM glpi_users WHERE name IN ('maya.patel', 'noah.reed', 'iris.chen', 'leo.okafor')) = 4
+      AND (SELECT COUNT(*) FROM glpi_tickets WHERE name IN ('Approval needed for VPN concentrator', 'Replace Iris docking station', 'Field Support WiFi rollout')) = 3
+      AND (SELECT COUNT(*) FROM glpi_computers WHERE name IN ('NW-Laptop-Iris-01', 'NW-Tablet-Iris-02')) = 2
+      AND (SELECT COUNT(*) FROM glpi_projects WHERE name='Northwind WiFi Refresh') = 1
+      AND (SELECT COUNT(*) FROM glpi_projecttasks WHERE name='WiFi survey floor 3') = 1
+      AND (SELECT COUNT(*) FROM glpi_planningexternalevents WHERE name='Vendor maintenance reminder') = 1
+      AND (SELECT COUNT(*) FROM glpi_tickettemplates WHERE name IN ('Standard Intake Template', 'Hardware Replacement Template')) = 2
+      AND (SELECT COUNT(*) FROM glpi_itilcategories WHERE name='Hardware Replacement') = 1
+      AND (SELECT COUNT(*) FROM glpi_tickettemplatepredefinedfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Hardware Replacement Template')) = 3
+      AND (SELECT COUNT(*) FROM glpi_tickettemplatehiddenfields WHERE tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Hardware Replacement Template')) = 1
+      AND (SELECT COUNT(*) FROM glpi_profiles WHERE id = 100 AND name = 'Approval Substitute') = 1
       AND (SELECT COUNT(*) FROM glpi_profilerights WHERE profiles_id = 100 AND name = 'ticket' AND rights = 163847) = 1
       AND (SELECT COUNT(*) FROM glpi_profilerights WHERE profiles_id = 100 AND name = 'ticketvalidation' AND rights = 15376) = 1
-      AND (SELECT COUNT(*) FROM glpi_users WHERE name = 'seed.substitute' AND profiles_id = 100 AND groups_id = 0) = 1
-      AND (SELECT COUNT(*) FROM glpi_groups_users gu JOIN glpi_users u ON u.id = gu.users_id WHERE u.name = 'seed.substitute') = 0
-      AND (SELECT COUNT(*) FROM glpi_validatorsubstitutes vs JOIN glpi_users owner ON owner.id = vs.users_id JOIN glpi_users substitute ON substitute.id = vs.users_id_substitute WHERE owner.name = 'seed.approver' AND substitute.name = 'seed.substitute') = 1
-      AND (SELECT COUNT(*) FROM glpi_tickets t WHERE t.name='Seed: Replace Iris docking station'
-           AND t.itilcategories_id = (SELECT id FROM glpi_itilcategories WHERE name='Seed Hardware Replacement')
-           AND t.tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Seed: Standard Intake Template')
+      AND (SELECT COUNT(*) FROM glpi_users WHERE name = 'noah.reed' AND profiles_id = 100 AND groups_id = 0) = 1
+      AND (SELECT COUNT(*) FROM glpi_groups_users gu JOIN glpi_users u ON u.id = gu.users_id WHERE u.name = 'noah.reed') = 0
+      AND (SELECT COUNT(*) FROM glpi_validatorsubstitutes vs JOIN glpi_users owner ON owner.id = vs.users_id JOIN glpi_users substitute ON substitute.id = vs.users_id_substitute WHERE owner.name = 'maya.patel' AND substitute.name = 'noah.reed') = 1
+      AND (SELECT COUNT(*) FROM glpi_tickets t WHERE t.name='Replace Iris docking station'
+           AND t.itilcategories_id = (SELECT id FROM glpi_itilcategories WHERE name='Hardware Replacement')
+           AND t.tickettemplates_id = (SELECT id FROM glpi_tickettemplates WHERE name='Standard Intake Template')
            AND t.type = 1 AND t.priority = 2 AND t.urgency = 2 AND t.impact = 2) = 1,
       'PASS', 'FAIL'
     );" | grep -q '^PASS$'; then
@@ -110,7 +110,7 @@ cmd_verify() {
 
 cmd_reset() {
   # shellcheck disable=SC2086
-  (cd "${SCRIPT_DIR}" && docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_ARGS} down -v 2>/dev/null || true)
+  (cd "${SCRIPT_DIR}" && docker compose -p "${COMPOSE_PROJECT_NAME}" ${COMPOSE_ARGS} down -v)
 }
 cmd_stop() {
   # shellcheck disable=SC2086

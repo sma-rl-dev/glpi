@@ -4,6 +4,7 @@
 # Variables are exported by the tester-env script before compose runs.
 services:
   app:
+    image: "${IMAGE_TAG:-tester-env-glpi:dev}"
     container_name: "${APP_CONTAINER}"
     build:
       args:

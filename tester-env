@@ -65,9 +65,21 @@ cmd_seed() {
   for user in maya.patel noah.reed iris.chen leo.okafor; do
     docker exec -u www-data "${APP_CONTAINER}" php bin/console user:reset_password "${user}" -p admin123 -n >/dev/null
   done
-  # Compile the first-request styles before a tester reaches the login page.
-  curl -fsS "http://localhost:${PORT}/front/css.php?file=css/glpi.scss" -o /dev/null
-  curl -fsS "http://localhost:${PORT}/front/css.php?file=css/core_palettes.scss" -o /dev/null
+  # Warm the SCSS compilation cache using the exact stylesheet URLs the login
+  # page requests. GLPI keys that cache by the `v` token (derived from the
+  # container hostname), so unversioned URLs compile under a different key and
+  # the first browser request still pays the full cold-compilation cost.
+  # `curl -f` keeps compilation failures fatal.
+  login_page="$(curl -fsS "http://localhost:${PORT}/")"
+  while IFS= read -r style_url; do
+    curl -fsS "http://localhost:${PORT}${style_url}" -o /dev/null
+  done < <(
+    printf '%s' "${login_page}" \
+      | grep -oE '/[^"[:space:]]*css\.php\?[^"[:space:]]*' \
+      | grep -E 'file=css/(glpi|core_palettes)\.scss' \
+      | sed 's/&amp;/\&/g' \
+      | sort -u
+  )
   echo "==> Seed complete. Profile: northwind-it-ops."
   echo "==> Seeded users: maya.patel, noah.reed, iris.chen, leo.okafor (password admin123)."
   echo "==> Seeded stable records: 3 entities, 2 groups, 3 tickets, 2 computers, 1 project, 1 project task, 1 planning event, 2 ticket templates, 1 ITIL category."
